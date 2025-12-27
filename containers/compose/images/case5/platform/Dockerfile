@@ -65,6 +65,7 @@ RUN apk update && apk add --no-cache \
     openssl \
     ffmpeg \
     imagemagick \
+    rsync \
     # For cron
     busybox-suid \
     && rm -rf /var/cache/apk/*
@@ -79,37 +80,21 @@ RUN sed -i "s/memory_limit = .*/memory_limit = ${PHP_MEMORY_LIMIT}/" /etc/php82/
     && sed -i "s/max_execution_time = .*/max_execution_time = ${PHP_MAX_EXECUTION_TIME}/" /etc/php82/php.ini \
     && sed -i "s/max_input_time = .*/max_input_time = ${PHP_MAX_EXECUTION_TIME}/" /etc/php82/php.ini
 
-# Configure PHP-FPM
-RUN sed -i "s/;clear_env = no/clear_env = no/" /etc/php82/php-fpm.d/www.conf \
-    && sed -i "s/user = nobody/user = nginx/" /etc/php82/php-fpm.d/www.conf \
-    && sed -i "s/group = nobody/group = nginx/" /etc/php82/php-fpm.d/www.conf \
-    && sed -i "s/listen = 127.0.0.1:9000/listen = \/var\/run\/php-fpm.sock/" /etc/php82/php-fpm.d/www.conf \
-    && sed -i "s/;listen.owner = nobody/listen.owner = nginx/" /etc/php82/php-fpm.d/www.conf \
-    && sed -i "s/;listen.group = nobody/listen.group = nginx/" /etc/php82/php-fpm.d/www.conf \
-    && sed -i "s/;listen.mode = 0660/listen.mode = 0660/" /etc/php82/php-fpm.d/www.conf
-
-# Download and install Nextcloud
-RUN mkdir -p /var/www/html \
-    && cd /tmp \
-    && wget -q https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2 \
-    && wget -q https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2.sha256 \
-    && sha256sum -c nextcloud-${NEXTCLOUD_VERSION}.tar.bz2.sha256 \
-    && tar -xjf nextcloud-${NEXTCLOUD_VERSION}.tar.bz2 -C /var/www/html --strip-components=1 \
-    && rm -rf /tmp/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2* \
-    && chown -R nginx:nginx /var/www/html
-
-# Create required directories
-RUN mkdir -p /var/www/html/data \
-    && mkdir -p /var/www/html/config \
-    && mkdir -p /var/www/html/apps \
+# Create directories
+RUN mkdir -p /usr/src/nextcloud \
+    && mkdir -p /var/www/html \
     && mkdir -p /var/log/nginx \
     && mkdir -p /var/log/php82 \
     && mkdir -p /run/nginx \
-    && mkdir -p /var/run \
-    && chown -R nginx:nginx /var/www/html \
-    && chown -R nginx:nginx /var/log/nginx \
-    && chown -R nginx:nginx /run/nginx \
-    && chmod -R 755 /var/www/html
+    && mkdir -p /var/run
+
+# Download Nextcloud to /usr/src (will be copied to /var/www/html on first run)
+RUN cd /tmp \
+    && wget -q https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2 \
+    && wget -q https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2.sha256 \
+    && sha256sum -c nextcloud-${NEXTCLOUD_VERSION}.tar.bz2.sha256 \
+    && tar -xjf nextcloud-${NEXTCLOUD_VERSION}.tar.bz2 -C /usr/src/nextcloud --strip-components=1 \
+    && rm -rf /tmp/nextcloud-${NEXTCLOUD_VERSION}.tar.bz2*
 
 # Copy configuration files
 COPY nginx.conf /etc/nginx/http.d/default.conf
@@ -124,14 +109,20 @@ RUN chmod +x /start.sh /nextcloud-cron.sh
 # Setup crontab for Nextcloud background jobs
 RUN echo "*/5 * * * * /nextcloud-cron.sh" | crontab -
 
-# Volumes for persistent data
-VOLUME ["/var/www/html/data", "/var/www/html/config", "/var/www/html/apps"]
+# Set proper ownership
+RUN chown -R nginx:nginx /usr/src/nextcloud \
+    && chown -R nginx:nginx /var/www/html \
+    && chown -R nginx:nginx /var/log/nginx \
+    && chown -R nginx:nginx /run/nginx
+
+# Volume for persistent data only (not the whole html folder)
+VOLUME ["/var/www/html"]
 
 # Expose port
 EXPOSE 80
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
     CMD curl -f http://localhost/status.php || exit 1
 
 # Start services

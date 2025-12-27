@@ -1,5 +1,5 @@
 # Docker Compose for Custom Nextcloud with MySQL
-# Usage: docker-compose up -d --build
+# Usage: docker compose up -d --build
 
 services:
   # Custom Nextcloud
@@ -17,20 +17,12 @@ services:
       - MYSQL_USER=nextcloud
       - MYSQL_PASSWORD=nextcloud_password
     volumes:
-      - ./data/nextcloud-data:/var/www/html/data
-      - ./data/nextcloud-config:/var/www/html/config
-      - ./data/nextcloud-apps:/var/www/html/apps
+      - nextcloud-html:/var/www/html
     depends_on:
       mysql:
         condition: service_healthy
     networks:
       - nextcloud-network
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost/status.php" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 120s
 
   # MySQL Database
   mysql:
@@ -44,7 +36,7 @@ services:
       - MYSQL_PASSWORD=nextcloud_password
     command: '--default-authentication-plugin=mysql_native_password'
     volumes:
-      - ./data/mysql:/var/lib/mysql
+      - mysql-data:/var/lib/mysql
     networks:
       - nextcloud-network
     healthcheck:
@@ -73,3 +65,9 @@ networks:
   nextcloud-network:
     driver: bridge
     name: nextcloud-network
+
+volumes:
+  nextcloud-html:
+    driver: local
+  mysql-data:
+    driver: local
