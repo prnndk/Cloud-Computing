@@ -1,0 +1,75 @@
+# Docker Compose for Custom Nextcloud with MySQL
+# Usage: docker-compose up -d --build
+
+services:
+  # Custom Nextcloud
+  nextcloud:
+    build:
+      context: ./platform
+      dockerfile: Dockerfile
+    container_name: custom-nextcloud
+    restart: unless-stopped
+    ports:
+      - "8888:80"
+    environment:
+      - MYSQL_HOST=mysql
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=nextcloud_password
+    volumes:
+      - ./data/nextcloud-data:/var/www/html/data
+      - ./data/nextcloud-config:/var/www/html/config
+      - ./data/nextcloud-apps:/var/www/html/apps
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - nextcloud-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost/status.php" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: nextcloud-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_password
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=nextcloud_password
+    command: '--default-authentication-plugin=mysql_native_password'
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - nextcloud-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # phpMyAdmin for database management
+  phpmyadmin:
+    image: phpmyadmin:5.2.1-apache
+    container_name: nextcloud-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8889:80"
+    environment:
+      - PMA_HOST=mysql
+      - MYSQL_ROOT_PASSWORD=root_password
+    depends_on:
+      - mysql
+    networks:
+      - nextcloud-network
+
+networks:
+  nextcloud-network:
+    driver: bridge
+    name: nextcloud-network
